@@ -36,7 +36,7 @@
           <div v-if="projects.length === 0" class="muted">IndexedDB 中还没有工程。</div>
           <div v-for="item in projects" :key="item.id" class="project-row">
             <button class="link-button" @click="loadStoredProject(item)">{{ item.name }}</button>
-            <small>{{ formatDate(item.updatedAt) }} · {{ item.marks.length }} 标记</small>
+            <small>{{ formatDate(item.updatedAt) }} · {{ item.marks.length }} 标记 · {{ item.logs?.length ?? 0 }} 记录</small>
             <button class="danger" @click="removeStoredProject(item.id)">删除</button>
           </div>
         </section>
@@ -138,6 +138,92 @@
           </div>
         </section>
 
+        <section class="panel log-panel">
+          <h2>排练记录</h2>
+          <div class="log-form">
+            <div class="log-row">
+              <span class="log-label">起点</span>
+              <select v-model.number="logStartMeasureIndex" :disabled="!score">
+                <option v-for="measure in score?.measures ?? []" :key="measure.index" :value="measure.index">
+                  小节 {{ measure.number }}
+                </option>
+              </select>
+              <select v-model.number="logStartOccurrence" :disabled="!logStartOccurrences.length">
+                <option v-for="occurrence in logStartOccurrences" :key="occurrence" :value="occurrence">
+                  第 {{ occurrence }} 次
+                </option>
+              </select>
+              <button class="mini-button" :disabled="!path" @click="useCurrentAs('start')">用当前</button>
+            </div>
+            <div class="log-row">
+              <span class="log-label">终点</span>
+              <select v-model.number="logEndMeasureIndex" :disabled="!score">
+                <option v-for="measure in score?.measures ?? []" :key="measure.index" :value="measure.index">
+                  小节 {{ measure.number }}
+                </option>
+              </select>
+              <select v-model.number="logEndOccurrence" :disabled="!logEndOccurrences.length">
+                <option v-for="occurrence in logEndOccurrences" :key="occurrence" :value="occurrence">
+                  第 {{ occurrence }} 次
+                </option>
+              </select>
+              <button class="mini-button" :disabled="!path" @click="useCurrentAs('end')">用当前</button>
+            </div>
+            <div class="log-row">
+              <span class="log-label">练习日期</span>
+              <input v-model="logDate" type="date" />
+            </div>
+            <div class="log-row">
+              <span class="log-label">目标速度</span>
+              <input
+                v-model.number="logTargetBpm"
+                type="number"
+                min="20"
+                max="400"
+                step="1"
+                :placeholder="logStartBpm ? `♩/分，可留空（起点当前 ♩ = ${logStartBpm}）` : '♩/分，可留空'"
+              />
+            </div>
+            <div class="log-row">
+              <span class="log-label">完成情况</span>
+              <select v-model="logStatus">
+                <option value="planned">计划</option>
+                <option value="done">已完成</option>
+                <option value="needs-work">需再练</option>
+              </select>
+            </div>
+            <textarea v-model="logNote" placeholder="备注：本次练到哪、问题是什么（仅人工记录，不录音、不计时）"></textarea>
+            <div v-if="segmentPreview" class="log-estimate">
+              按实际路径 {{ segmentPreview.stepCount }} 步计算，预计 {{ formatTime(segmentPreview.estimatedSeconds) }}
+            </div>
+            <div v-else class="log-error">{{ logBlockReason }}</div>
+            <button class="button primary" :disabled="!canCreateLog" @click="addLog">保存排练记录</button>
+          </div>
+
+          <div v-if="!sortedLogs.length" class="muted">还没有排练记录。</div>
+          <article v-for="log in sortedLogs" :key="log.id" class="log-item">
+            <button class="log-main" title="点击定位到起点到达位置" @click="locateLog(log, 'start')">
+              <header>
+                <strong>{{ log.practicedOn }}</strong>
+                <span :class="['log-status', log.status]">{{ logStatusLabels[log.status] }}</span>
+              </header>
+              <span class="log-segment">
+                小节 {{ measureNumberOf(log.startMeasureIndex) }} · 第 {{ log.startOccurrence }} 次
+                → 小节 {{ measureNumberOf(log.endMeasureIndex) }} · 第 {{ log.endOccurrence }} 次
+              </span>
+              <span class="log-meta">
+                预计 {{ formatTime(log.estimatedSeconds) }}（{{ log.stepCount }} 步）<template v-if="log.targetBpm"> · 目标 ♩ = {{ log.targetBpm }}</template>
+              </span>
+              <span v-if="log.note" class="log-note">{{ log.note }}</span>
+            </button>
+            <div class="log-actions">
+              <button @click="locateLog(log, 'start')">定位起点</button>
+              <button @click="locateLog(log, 'end')">定位终点</button>
+              <button class="danger" @click="removeLog(log.id)">删除</button>
+            </div>
+          </article>
+        </section>
+
         <section class="panel">
           <h2>排练标记（独立保存）</h2>
           <div class="mark-form">
@@ -179,11 +265,12 @@ import {
   exportProject,
   importProjectFile,
   listProjects,
+  normalizeProject,
   saveProject,
 } from './storage/projects'
-import { arrivalsFor, buildPerformancePath, formatTime, parseMusicXml, type ParsedScore } from './score/parser'
+import { arrivalsFor, buildPerformancePath, formatTime, parseMusicXml, resolveSegment, type ParsedScore } from './score/parser'
 import { sampleLibrary } from './score/samples'
-import type { RehearsalMark, StoredProject } from './score/types'
+import type { RehearsalLog, RehearsalLogStatus, RehearsalMark, StoredProject } from './score/types'
 
 const projects = ref<StoredProject[]>([])
 const project = ref<StoredProject | null>(null)
@@ -196,13 +283,59 @@ const currentScoreTime = ref(0)
 const playing = ref(false)
 const markLabel = ref('')
 const markComment = ref('')
+const logStartMeasureIndex = ref(0)
+const logStartOccurrence = ref(1)
+const logEndMeasureIndex = ref(0)
+const logEndOccurrence = ref(1)
+const logDate = ref(todayString())
+const logTargetBpm = ref<number | null>(null)
+const logNote = ref('')
+const logStatus = ref<RehearsalLogStatus>('done')
 const beatEvents = ref<BeatEvent[]>([])
 let metronome: Metronome | null = null
 let rafHandle = 0
 
+const logStatusLabels: Record<RehearsalLogStatus, string> = {
+  planned: '计划',
+  done: '已完成',
+  'needs-work': '需再练',
+}
+
+function todayString(): string {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}
+
 const selectedMeasure = computed(() => score.value?.measures[selectedMeasureIndex.value] ?? null)
 const selectedOccurrences = computed(() => path.value ? arrivalsFor(path.value, selectedMeasureIndex.value) : [])
 const playProgress = computed(() => path.value && path.value.totalSeconds > 0 ? currentScoreTime.value / path.value.totalSeconds : 0)
+const logStartOccurrences = computed(() => path.value ? arrivalsFor(path.value, logStartMeasureIndex.value) : [])
+const logEndOccurrences = computed(() => path.value ? arrivalsFor(path.value, logEndMeasureIndex.value) : [])
+const logStartBpm = computed(() => {
+  const step = path.value?.steps.find(
+    (item) => item.measureIndex === logStartMeasureIndex.value && item.occurrence === logStartOccurrence.value,
+  )
+  return step ? Math.round(step.bpm) : null
+})
+const segmentPreview = computed(() =>
+  path.value
+    ? resolveSegment(path.value, logStartMeasureIndex.value, logStartOccurrence.value, logEndMeasureIndex.value, logEndOccurrence.value)
+    : null,
+)
+const logBlockReason = computed(() => {
+  if (!path.value) return '请先加载乐谱。'
+  if (!path.value.closed) return '演奏路径未闭合，不能创建排练记录。'
+  if (!segmentPreview.value) return '起点在终点之后（或到达次数不存在），不能创建。'
+  return ''
+})
+const canCreateLog = computed(() => Boolean(path.value?.closed) && segmentPreview.value !== null)
+const sortedLogs = computed(() =>
+  [...(project.value?.logs ?? [])].sort(
+    (a, b) => b.practicedOn.localeCompare(a.practicedOn) || b.createdAt.localeCompare(a.createdAt),
+  ),
+)
 
 async function refreshProjectList(): Promise<void> {
   projects.value = await listProjects()
@@ -215,6 +348,10 @@ function analyze(xml: string): void {
   beatEvents.value = buildBeatEvents(path.value.steps, parsed.measures)
   selectedMeasureIndex.value = 0
   selectedOccurrence.value = path.value.arrivals[0]?.occurrences[0] ?? 1
+  logStartMeasureIndex.value = 0
+  logEndMeasureIndex.value = 0
+  logStartOccurrence.value = arrivalsFor(path.value, 0)[0] ?? 1
+  logEndOccurrence.value = logStartOccurrence.value
   stopPlayback()
 }
 
@@ -241,7 +378,7 @@ async function onFileSelected(event: Event): Promise<void> {
 }
 
 function loadStoredProject(item: StoredProject): void {
-  project.value = JSON.parse(JSON.stringify(item)) as StoredProject
+  project.value = normalizeProject(JSON.parse(JSON.stringify(item)) as StoredProject)
   analyze(project.value.originalXml)
 }
 
@@ -383,6 +520,69 @@ function removeMark(id: string): void {
   void saveCurrentProject()
 }
 
+function useCurrentAs(which: 'start' | 'end'): void {
+  if (which === 'start') {
+    logStartMeasureIndex.value = selectedMeasureIndex.value
+    logStartOccurrence.value = selectedOccurrence.value
+  } else {
+    logEndMeasureIndex.value = selectedMeasureIndex.value
+    logEndOccurrence.value = selectedOccurrence.value
+  }
+}
+
+function addLog(): void {
+  if (!project.value || !path.value || !path.value.closed) return
+  const segment = resolveSegment(
+    path.value,
+    logStartMeasureIndex.value,
+    logStartOccurrence.value,
+    logEndMeasureIndex.value,
+    logEndOccurrence.value,
+  )
+  if (!segment) return
+  const targetBpm =
+    typeof logTargetBpm.value === 'number' && Number.isFinite(logTargetBpm.value) && logTargetBpm.value > 0
+      ? logTargetBpm.value
+      : null
+  const log: RehearsalLog = {
+    id: crypto.randomUUID(),
+    startMeasureIndex: logStartMeasureIndex.value,
+    startOccurrence: logStartOccurrence.value,
+    endMeasureIndex: logEndMeasureIndex.value,
+    endOccurrence: logEndOccurrence.value,
+    practicedOn: logDate.value || todayString(),
+    targetBpm,
+    note: logNote.value.trim(),
+    status: logStatus.value,
+    estimatedSeconds: segment.estimatedSeconds,
+    stepCount: segment.stepCount,
+    createdAt: new Date().toISOString(),
+  }
+  project.value.logs.push(log)
+  logNote.value = ''
+  void saveCurrentProject()
+}
+
+function removeLog(id: string): void {
+  if (!project.value) return
+  project.value.logs = project.value.logs.filter((log) => log.id !== id)
+  void saveCurrentProject()
+}
+
+function locateLog(log: RehearsalLog, which: 'start' | 'end'): void {
+  const measureIndex = which === 'start' ? log.startMeasureIndex : log.endMeasureIndex
+  const occurrence = which === 'start' ? log.startOccurrence : log.endOccurrence
+  selectedMeasureIndex.value = measureIndex
+  selectedOccurrence.value = occurrence
+  const stepIndex =
+    path.value?.steps.findIndex((step) => step.measureIndex === measureIndex && step.occurrence === occurrence) ?? -1
+  if (stepIndex >= 0) seekToStep(stepIndex)
+}
+
+function measureNumberOf(measureIndex: number): string {
+  return score.value?.measures[measureIndex]?.number ?? '?'
+}
+
 function formatDate(iso: string): string {
   return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso))
 }
@@ -390,6 +590,16 @@ function formatDate(iso: string): string {
 watch(selectedMeasureIndex, () => {
   const occurrences = path.value ? arrivalsFor(path.value, selectedMeasureIndex.value) : []
   if (!occurrences.includes(selectedOccurrence.value)) selectedOccurrence.value = occurrences[0] ?? 1
+})
+
+watch(logStartMeasureIndex, () => {
+  const occurrences = path.value ? arrivalsFor(path.value, logStartMeasureIndex.value) : []
+  if (!occurrences.includes(logStartOccurrence.value)) logStartOccurrence.value = occurrences[0] ?? 1
+})
+
+watch(logEndMeasureIndex, () => {
+  const occurrences = path.value ? arrivalsFor(path.value, logEndMeasureIndex.value) : []
+  if (!occurrences.includes(logEndOccurrence.value)) logEndOccurrence.value = occurrences[0] ?? 1
 })
 
 watch(selectedOccurrence, () => {

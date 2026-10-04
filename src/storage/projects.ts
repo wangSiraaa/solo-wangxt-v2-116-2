@@ -60,8 +60,17 @@ export function createProject(name: string, originalXml: string): StoredProject 
     name,
     originalXml,
     marks: [],
+    logs: [],
     updatedAt: now,
     createdAt: now,
+  }
+}
+
+export function normalizeProject(project: StoredProject): StoredProject {
+  return {
+    ...project,
+    marks: project.marks ?? [],
+    logs: project.logs ?? [],
   }
 }
 
@@ -88,9 +97,9 @@ export async function importProjectFile(file: File): Promise<StoredProject> {
   if (parsed.format !== 'local-rehearsal-project/v1' || !parsed.project?.originalXml) {
     throw new Error('不是有效的 local-rehearsal-project/v1 工程文件。')
   }
-  return {
+  return normalizeProject({
     ...parsed.project,
     id: crypto.randomUUID(),
     updatedAt: new Date().toISOString(),
-  }
+  })
 }

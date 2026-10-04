@@ -689,6 +689,33 @@ export function arrivalsFor(path: BuiltPath, measureIndex: number): number[] {
   return path.arrivals.find((item) => item.measureIndex === measureIndex)?.occurrences ?? []
 }
 
+export interface SegmentResolution {
+  startStepIndex: number
+  endStepIndex: number
+  stepCount: number
+  estimatedSeconds: number
+}
+
+export function resolveSegment(
+  path: BuiltPath,
+  startMeasureIndex: number,
+  startOccurrence: number,
+  endMeasureIndex: number,
+  endOccurrence: number,
+): SegmentResolution | null {
+  const startStepIndex = path.steps.findIndex(
+    (step) => step.measureIndex === startMeasureIndex && step.occurrence === startOccurrence,
+  )
+  const endStepIndex = path.steps.findIndex(
+    (step) => step.measureIndex === endMeasureIndex && step.occurrence === endOccurrence,
+  )
+  if (startStepIndex < 0 || endStepIndex < 0) return null
+  if (startStepIndex > endStepIndex) return null
+  const segmentSteps = path.steps.slice(startStepIndex, endStepIndex + 1)
+  const estimatedSeconds = segmentSteps.reduce((sum, step) => sum + step.durationSeconds, 0)
+  return { startStepIndex, endStepIndex, stepCount: segmentSteps.length, estimatedSeconds }
+}
+
 export function formatTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60)
   const rest = seconds - minutes * 60

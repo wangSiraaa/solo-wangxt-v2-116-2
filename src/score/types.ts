@@ -130,11 +130,29 @@ export interface RehearsalMark {
   createdAt: string
 }
 
+export type RehearsalLogStatus = 'planned' | 'done' | 'needs-work'
+
+export interface RehearsalLog {
+  id: string
+  startMeasureIndex: number
+  startOccurrence: number
+  endMeasureIndex: number
+  endOccurrence: number
+  practicedOn: string
+  targetBpm: number | null
+  note: string
+  status: RehearsalLogStatus
+  estimatedSeconds: number
+  stepCount: number
+  createdAt: string
+}
+
 export interface StoredProject {
   id: string
   name: string
   originalXml: string
   marks: RehearsalMark[]
+  logs: RehearsalLog[]
   updatedAt: string
   createdAt: string
 }
