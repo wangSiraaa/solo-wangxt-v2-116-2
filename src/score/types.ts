@@ -130,11 +130,38 @@ export interface RehearsalMark {
   createdAt: string
 }
 
+export type RehearsalOutcome = 'completed' | 'partial' | 'planned'
+
+export interface RehearsalArrivalRef {
+  measureIndex: number
+  occurrence: number
+}
+
+export interface RehearsalRecord {
+  id: string
+  /** 练习日期，YYYY-MM-DD（人工填写） */
+  date: string
+  /** 目标速度 ♩=，仅记录练习目标，不参与时长估算 */
+  targetBpm: number | null
+  notes: string
+  outcome: RehearsalOutcome
+  /** 起点：实际演奏路径中的某一次到达 */
+  start: RehearsalArrivalRef
+  /** 终点：实际演奏路径中的某一次到达 */
+  end: RehearsalArrivalRef
+  /** 创建时按实际路径步骤逐段累加的预计时长（含起止小节） */
+  estimatedSeconds: number
+  /** 该段在实际路径中经过的步骤数 */
+  stepCount: number
+  createdAt: string
+}
+
 export interface StoredProject {
   id: string
   name: string
   originalXml: string
   marks: RehearsalMark[]
+  records: RehearsalRecord[]
   updatedAt: string
   createdAt: string
 }

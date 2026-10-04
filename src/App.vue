@@ -36,7 +36,7 @@
           <div v-if="projects.length === 0" class="muted">IndexedDB 中还没有工程。</div>
           <div v-for="item in projects" :key="item.id" class="project-row">
             <button class="link-button" @click="loadStoredProject(item)">{{ item.name }}</button>
-            <small>{{ formatDate(item.updatedAt) }} · {{ item.marks.length }} 标记</small>
+            <small>{{ formatDate(item.updatedAt) }} · {{ item.marks.length }} 标记 · {{ item.records.length }} 记录</small>
             <button class="danger" @click="removeStoredProject(item.id)">删除</button>
           </div>
         </section>
@@ -87,6 +87,8 @@
             :measures="score.measures"
             :path="path"
             :active-step-index="activeStepIndex"
+            :range-start-step-index="activeRecordRange?.startStepIndex ?? null"
+            :range-end-step-index="activeRecordRange?.endStepIndex ?? null"
             interactable
             @select-measure="chooseMeasure"
           />
@@ -155,6 +157,111 @@
           </div>
         </section>
 
+        <section class="panel records-panel">
+          <h2>排练记录（人工记录 · 时长估算）</h2>
+          <p class="muted record-hint">从“实际演奏路径”的每次到达中选择起止；同一小节的第几次到达会被区分。</p>
+          <div class="record-form">
+            <div class="record-endpoint">
+              <div>
+                <label>起点</label>
+                <select v-model.number="recordStartMeasure" :disabled="!score">
+                  <option v-for="measure in score?.measures ?? []" :key="`s-m-${measure.index}`" :value="measure.index">
+                    小节 {{ measure.number }}{{ measure.isPickup ? '（弱起）' : '' }}
+                  </option>
+                </select>
+                <select v-model.number="recordStartOccurrence" :disabled="!recordStartOccurrences.length">
+                  <option v-for="occurrence in recordStartOccurrences" :key="`s-o-${occurrence}`" :value="occurrence">
+                    第 {{ occurrence }} 次到达
+                  </option>
+                  <option v-if="!recordStartOccurrences.length" :value="recordStartOccurrence">不被演奏</option>
+                </select>
+              </div>
+              <button class="button secondary" type="button" :disabled="!path" @click="useCurrentForRecord('start')">用当前到达</button>
+            </div>
+            <div class="record-endpoint">
+              <div>
+                <label>终点（含本小节）</label>
+                <select v-model.number="recordEndMeasure" :disabled="!score">
+                  <option v-for="measure in score?.measures ?? []" :key="`e-m-${measure.index}`" :value="measure.index">
+                    小节 {{ measure.number }}{{ measure.isPickup ? '（弱起）' : '' }}
+                  </option>
+                </select>
+                <select v-model.number="recordEndOccurrence" :disabled="!recordEndOccurrences.length">
+                  <option v-for="occurrence in recordEndOccurrences" :key="`e-o-${occurrence}`" :value="occurrence">
+                    第 {{ occurrence }} 次到达
+                  </option>
+                  <option v-if="!recordEndOccurrences.length" :value="recordEndOccurrence">不被演奏</option>
+                </select>
+              </div>
+              <button class="button secondary" type="button" :disabled="!path" @click="useCurrentForRecord('end')">用当前到达</button>
+            </div>
+            <div class="record-grid">
+              <label>练习日期
+                <input v-model="recordDate" type="date" />
+              </label>
+              <label>目标速度 ♩=
+                <input v-model="recordTargetBpmInput" type="number" min="1" placeholder="可选" />
+              </label>
+            </div>
+            <label>完成情况
+              <select v-model="recordOutcome">
+                <option value="completed">已完成</option>
+                <option value="partial">部分完成</option>
+                <option value="planned">仅计划</option>
+              </select>
+            </label>
+            <textarea v-model="recordNotes" placeholder="备注：本次排练的问题、要求等（不写回 XML）" />
+            <div :class="['record-estimate', { invalid: !recordSegment.ok }]">
+              <template v-if="recordSegment.ok && recordSegment.estimate">
+                预计 {{ formatTime(recordSegment.estimate.durationSeconds) }} ·
+                实际路径第 {{ recordSegment.estimate.startStepIndex + 1 }}–{{ recordSegment.estimate.endStepIndex + 1 }} 步 ·
+                共 {{ recordSegment.estimate.stepCount }} 个小节步
+              </template>
+              <template v-else>{{ recordSegment.errorMessage }}</template>
+            </div>
+            <button
+              class="button primary"
+              type="button"
+              :disabled="!project || !recordSegment.ok"
+              @click="addRecord"
+            >
+              保存排练记录
+            </button>
+          </div>
+
+          <div class="record-list">
+            <div v-if="sortedRecords.length === 0" class="muted">还没有排练记录。</div>
+            <article
+              v-for="record in sortedRecords"
+              :key="record.id"
+              :class="['record-card', { active: record.id === activeRecordId, unresolved: !recordSegments.get(record.id) }]"
+              @click="locateRecord(record)"
+            >
+              <header>
+                <strong>{{ formatRecordDate(record.date) }}</strong>
+                <span :class="['outcome-tag', record.outcome]">{{ outcomeLabel(record.outcome) }}</span>
+              </header>
+              <p class="record-segment">
+                {{ arrivalText(record.start) }}
+                <em>→</em>
+                {{ arrivalText(record.end) }}
+              </p>
+              <p v-if="record.notes" class="record-notes">{{ record.notes }}</p>
+              <small>
+                预计 {{ formatTime((recordSegments.get(record.id)?.durationSeconds ?? record.estimatedSeconds) || 0) }}
+                · {{ record.stepCount }} 步
+                <template v-if="record.targetBpm !== null"> · 目标 ♩={{ record.targetBpm }}</template>
+              </small>
+              <div v-if="!recordSegments.get(record.id)" class="record-lost">当前路径中找不到该记录的某次到达，无法定位。</div>
+              <div class="record-actions" @click.stop>
+                <button type="button" :disabled="!recordSegments.get(record.id)" @click="locateRecord(record, 'start')">定位起点</button>
+                <button type="button" :disabled="!recordSegments.get(record.id)" @click="locateRecord(record, 'end')">定位终点</button>
+                <button class="record-remove" type="button" @click="removeRecord(record.id)">删除</button>
+              </div>
+            </article>
+          </div>
+        </section>
+
         <section class="panel warnings-panel">
           <h2>记号诊断（不静默忽略）</h2>
           <p v-if="!path?.warnings.length" class="muted">没有诊断信息。</p>
@@ -182,8 +289,9 @@ import {
   saveProject,
 } from './storage/projects'
 import { arrivalsFor, buildPerformancePath, formatTime, parseMusicXml, type ParsedScore } from './score/parser'
+import { evaluateSegment, findStepIndex, resolveRecordSegment, type SegmentEstimate } from './score/records'
 import { sampleLibrary } from './score/samples'
-import type { RehearsalMark, StoredProject } from './score/types'
+import type { RehearsalArrivalRef, RehearsalMark, RehearsalOutcome, RehearsalRecord, StoredProject } from './score/types'
 
 const projects = ref<StoredProject[]>([])
 const project = ref<StoredProject | null>(null)
@@ -197,12 +305,56 @@ const playing = ref(false)
 const markLabel = ref('')
 const markComment = ref('')
 const beatEvents = ref<BeatEvent[]>([])
+
+// 排练记录表单状态：两端都以“书面小节 + 第几次到达”表示实际路径位置
+const recordStartMeasure = ref(0)
+const recordStartOccurrence = ref(1)
+const recordEndMeasure = ref(0)
+const recordEndOccurrence = ref(1)
+const recordDate = ref(todayLocalDate())
+const recordTargetBpmInput = ref('')
+const recordOutcome = ref<RehearsalOutcome>('partial')
+const recordNotes = ref('')
+const activeRecordId = ref<string | null>(null)
+
 let metronome: Metronome | null = null
 let rafHandle = 0
 
 const selectedMeasure = computed(() => score.value?.measures[selectedMeasureIndex.value] ?? null)
 const selectedOccurrences = computed(() => path.value ? arrivalsFor(path.value, selectedMeasureIndex.value) : [])
 const playProgress = computed(() => path.value && path.value.totalSeconds > 0 ? currentScoreTime.value / path.value.totalSeconds : 0)
+
+const recordStartOccurrences = computed(() => path.value ? arrivalsFor(path.value, recordStartMeasure.value) : [])
+const recordEndOccurrences = computed(() => path.value ? arrivalsFor(path.value, recordEndMeasure.value) : [])
+
+const recordStartRef = computed<RehearsalArrivalRef>(() => ({
+  measureIndex: recordStartMeasure.value,
+  occurrence: recordStartOccurrence.value,
+}))
+const recordEndRef = computed<RehearsalArrivalRef>(() => ({
+  measureIndex: recordEndMeasure.value,
+  occurrence: recordEndOccurrence.value,
+}))
+
+const recordSegment = computed(() => evaluateSegment(path.value, recordStartRef.value, recordEndRef.value))
+
+const sortedRecords = computed(() =>
+  project.value
+    ? [...project.value.records].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
+    : [],
+)
+
+const recordSegments = computed<Map<string, SegmentEstimate | null>>(() => {
+  const result = new Map<string, SegmentEstimate | null>()
+  for (const record of project.value?.records ?? []) {
+    result.set(record.id, resolveRecordSegment(path.value, record))
+  }
+  return result
+})
+
+const activeRecordRange = computed<SegmentEstimate | null>(() =>
+  activeRecordId.value ? recordSegments.value.get(activeRecordId.value) ?? null : null,
+)
 
 async function refreshProjectList(): Promise<void> {
   projects.value = await listProjects()
@@ -215,6 +367,13 @@ function analyze(xml: string): void {
   beatEvents.value = buildBeatEvents(path.value.steps, parsed.measures)
   selectedMeasureIndex.value = 0
   selectedOccurrence.value = path.value.arrivals[0]?.occurrences[0] ?? 1
+  const firstStep = path.value.steps[0]
+  const lastStep = path.value.steps[path.value.steps.length - 1]
+  recordStartMeasure.value = firstStep?.measureIndex ?? 0
+  recordStartOccurrence.value = firstStep?.occurrence ?? 1
+  recordEndMeasure.value = lastStep?.measureIndex ?? 0
+  recordEndOccurrence.value = lastStep?.occurrence ?? 1
+  activeRecordId.value = null
   stopPlayback()
 }
 
@@ -242,6 +401,8 @@ async function onFileSelected(event: Event): Promise<void> {
 
 function loadStoredProject(item: StoredProject): void {
   project.value = JSON.parse(JSON.stringify(item)) as StoredProject
+  project.value.marks ??= []
+  project.value.records ??= []
   analyze(project.value.originalXml)
 }
 
@@ -383,6 +544,118 @@ function removeMark(id: string): void {
   void saveCurrentProject()
 }
 
+const outcomeLabels: Record<RehearsalOutcome, string> = {
+  completed: '已完成',
+  partial: '部分完成',
+  planned: '仅计划',
+}
+
+function outcomeLabel(outcome: RehearsalOutcome): string {
+  return outcomeLabels[outcome] ?? outcome
+}
+
+function todayLocalDate(): string {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}
+
+function formatRecordDate(date: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim())
+  if (!match) return date
+  return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }).format(
+    new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])),
+  )
+}
+
+/** “书面小节 N · 第 k 次到达（第 i 步）”：第几次到达让同名小节的记录仍指向正确的那一次。 */
+function arrivalText(arrival: RehearsalArrivalRef): string {
+  const measure = score.value?.measures[arrival.measureIndex]
+  const stepIndex = path.value ? findStepIndex(path.value, arrival) : -1
+  const numberText = measure ? measure.number : '?'
+  return `小节 ${numberText} · 第 ${arrival.occurrence} 次到达${stepIndex >= 0 ? `（第 ${stepIndex + 1} 步）` : ''}`
+}
+
+function useCurrentForRecord(which: 'start' | 'end'): void {
+  if (which === 'start') {
+    recordStartMeasure.value = selectedMeasureIndex.value
+    recordStartOccurrence.value = selectedOccurrence.value
+  } else {
+    recordEndMeasure.value = selectedMeasureIndex.value
+    recordEndOccurrence.value = selectedOccurrence.value
+  }
+  activeRecordId.value = null
+}
+
+function parseTargetBpm(): number | null {
+  const value = Number.parseInt(recordTargetBpmInput.value, 10)
+  return Number.isFinite(value) && value > 0 ? value : null
+}
+
+function addRecord(): void {
+  if (!project.value) return
+  const result = recordSegment.value
+  if (!result.ok || !result.estimate) {
+    window.alert(result.errorMessage ?? '当前起止位置不能创建排练记录。')
+    return
+  }
+  const date = recordDate.value || todayLocalDate()
+  const record: RehearsalRecord = {
+    id: crypto.randomUUID(),
+    date,
+    targetBpm: parseTargetBpm(),
+    notes: recordNotes.value.trim(),
+    outcome: recordOutcome.value,
+    start: { ...recordStartRef.value },
+    end: { ...recordEndRef.value },
+    estimatedSeconds: result.estimate.durationSeconds,
+    stepCount: result.estimate.stepCount,
+    createdAt: new Date().toISOString(),
+  }
+  project.value.records.push(record)
+  recordNotes.value = ''
+  recordTargetBpmInput.value = ''
+  recordOutcome.value = 'partial'
+  recordDate.value = todayLocalDate()
+  activeRecordId.value = record.id
+  void saveCurrentProject()
+}
+
+function removeRecord(id: string): void {
+  if (!project.value) return
+  project.value.records = project.value.records.filter((record) => record.id !== id)
+  if (activeRecordId.value === id) activeRecordId.value = null
+  void saveCurrentProject()
+}
+
+function locateRecord(record: RehearsalRecord, side: 'start' | 'end' | 'segment' = 'segment'): void {
+  const estimate = resolveRecordSegment(path.value, record)
+  if (!estimate) {
+    window.alert('这条记录的某次到达在当前演奏路径中不存在，无法定位（谱面可能已改变）。')
+    return
+  }
+  activeRecordId.value = record.id
+  const arrival = side === 'end' ? record.end : record.start
+  selectedMeasureIndex.value = arrival.measureIndex
+  selectedOccurrence.value = arrival.occurrence
+  const stepIndex = side === 'end' ? estimate.endStepIndex : estimate.startStepIndex
+  seekToStep(stepIndex)
+  scrollStepIntoView(stepIndex)
+}
+
+function scrollStepIntoView(stepIndex: number): void {
+  // 等待覆盖层与谱面布局就绪后再滚动到目标小节
+  window.setTimeout(() => {
+    const host = document.querySelector('.score-host')
+    host?.querySelector(`[data-measure-index="${path.value?.steps[stepIndex]?.measureIndex ?? -1}"]`)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+      inline: 'center',
+    })
+  }, 60)
+}
+
 function formatDate(iso: string): string {
   return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso))
 }
@@ -390,6 +663,21 @@ function formatDate(iso: string): string {
 watch(selectedMeasureIndex, () => {
   const occurrences = path.value ? arrivalsFor(path.value, selectedMeasureIndex.value) : []
   if (!occurrences.includes(selectedOccurrence.value)) selectedOccurrence.value = occurrences[0] ?? 1
+})
+
+watch(recordStartMeasure, () => {
+  const occurrences = path.value ? arrivalsFor(path.value, recordStartMeasure.value) : []
+  if (!occurrences.includes(recordStartOccurrence.value)) recordStartOccurrence.value = occurrences[0] ?? 1
+})
+
+watch(recordEndMeasure, () => {
+  const occurrences = path.value ? arrivalsFor(path.value, recordEndMeasure.value) : []
+  if (!occurrences.includes(recordEndOccurrence.value)) recordEndOccurrence.value = occurrences[0] ?? 1
+})
+
+// 手动调整表单端点时，取消上一条记录的段落高亮
+watch([recordStartMeasure, recordStartOccurrence, recordEndMeasure, recordEndOccurrence], () => {
+  activeRecordId.value = null
 })
 
 watch(selectedOccurrence, () => {

@@ -15,6 +15,8 @@ const props = defineProps<{
   path: BuiltPath | null
   activeStepIndex: number | null
   interactable?: boolean
+  rangeStartStepIndex?: number | null
+  rangeEndStepIndex?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -90,6 +92,23 @@ function drawOverlay(): void {
   const arrivedSet = new Map<number, Set<number>>()
   for (const arrival of props.path.arrivals) arrivedSet.set(arrival.measureIndex, new Set(arrival.occurrences))
 
+  // 排练记录段落：按实际路径步骤展开为“被演奏到的书面小节”集合，
+  // 跨跳房时只有真实经过的小节会高亮。
+  const rangeStart = props.rangeStartStepIndex ?? null
+  const rangeEnd = props.rangeEndStepIndex ?? null
+  const rangeMeasures = new Set<number>()
+  let rangeFirstMeasure: number | null = null
+  let rangeLastMeasure: number | null = null
+  if (rangeStart !== null && rangeEnd !== null && rangeStart >= 0 && rangeEnd >= rangeStart) {
+    for (let i = rangeStart; i <= rangeEnd; i += 1) {
+      const step = props.path.steps[i]
+      if (!step) continue
+      rangeMeasures.add(step.measureIndex)
+      if (rangeFirstMeasure === null) rangeFirstMeasure = step.measureIndex
+      rangeLastMeasure = step.measureIndex
+    }
+  }
+
   for (const measure of props.measures) {
     const rect = collectMeasureRect(measure.index)
     if (!rect) continue
@@ -106,6 +125,17 @@ function drawOverlay(): void {
     hit.setAttribute('class', 'measure-hit')
     hit.addEventListener('click', () => emit('selectMeasure', measure.index))
     group.appendChild(hit)
+
+    if (rangeMeasures.has(measure.index)) {
+      const range = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      range.setAttribute('x', String(rect.x))
+      range.setAttribute('y', String(rect.y))
+      range.setAttribute('width', String(rect.width))
+      range.setAttribute('height', String(rect.height))
+      const atEdge = measure.index === rangeFirstMeasure || measure.index === rangeLastMeasure
+      range.setAttribute('class', atEdge ? 'measure-range edge' : 'measure-range')
+      group.appendChild(range)
+    }
 
     if (arrivals?.size) {
       const marker = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
@@ -146,7 +176,7 @@ function onContainerClick(event: MouseEvent): void {
 }
 
 watch(() => props.xml, render, { immediate: true })
-watch(() => [props.activeStepIndex, props.path], drawOverlay)
+watch(() => [props.activeStepIndex, props.path, props.rangeStartStepIndex, props.rangeEndStepIndex], drawOverlay)
 watch(() => props.measures, () => window.setTimeout(drawOverlay, 80))
 
 resizeObserver = new ResizeObserver(() => window.setTimeout(drawOverlay, 100))

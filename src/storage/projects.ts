@@ -25,11 +25,20 @@ function requestPromise<T>(request: IDBRequest<T>): Promise<T> {
   })
 }
 
+/** 兼容早于排练记录功能创建的工程：补齐缺失的数组字段。 */
+function normalizeProject(project: StoredProject): StoredProject {
+  return {
+    ...project,
+    marks: Array.isArray(project.marks) ? project.marks : [],
+    records: Array.isArray(project.records) ? project.records : [],
+  }
+}
+
 export async function listProjects(): Promise<StoredProject[]> {
   const database = await openDatabase()
   try {
     const result = await requestPromise(database.transaction(storeName, 'readonly').objectStore(storeName).getAll())
-    return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    return result.map(normalizeProject).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   } finally {
     database.close()
   }
@@ -60,6 +69,7 @@ export function createProject(name: string, originalXml: string): StoredProject 
     name,
     originalXml,
     marks: [],
+    records: [],
     updatedAt: now,
     createdAt: now,
   }
@@ -88,9 +98,9 @@ export async function importProjectFile(file: File): Promise<StoredProject> {
   if (parsed.format !== 'local-rehearsal-project/v1' || !parsed.project?.originalXml) {
     throw new Error('不是有效的 local-rehearsal-project/v1 工程文件。')
   }
-  return {
+  return normalizeProject({
     ...parsed.project,
     id: crypto.randomUUID(),
     updatedAt: new Date().toISOString(),
-  }
+  })
 }

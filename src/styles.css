@@ -120,6 +120,8 @@ button, input, select, textarea { font: inherit; }
   overflow: visible;
 }
 .measure-hit { fill: transparent; pointer-events: all; cursor: pointer; }
+.measure-range { fill: rgba(52, 200, 130, .13); stroke: rgba(40, 175, 110, .5); stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; }
+.measure-range.edge { fill: rgba(52, 200, 130, .2); stroke: #1fae73; stroke-width: 2; stroke-dasharray: none; }
 .measure-arrival { fill: rgba(52, 111, 243, .08); stroke: rgba(52, 111, 245, .35); stroke-width: 1; pointer-events: none; }
 .measure-active { fill: rgba(255, 118, 36, .20); stroke: #ff702e; stroke-width: 2; pointer-events: none; }
 .measure-active.in-ending { fill: rgba(34, 190, 120, .18); stroke: #18a870; }
@@ -186,6 +188,88 @@ button, input, select, textarea { font: inherit; }
 
 .warnings-panel { max-height: 360px; overflow: auto; }
 .warning { display: grid; gap: 3px; padding: 8px; border-radius: 8px; margin-bottom: 7px; font-size: 12px; }
+.warning.error { background: rgba(220, 70, 70, .13); border: 1px solid rgba(238, 91, 91, .32); }
+.warning.warning { background: rgba(240, 170, 50, .12); border: 1px solid rgba(240, 170, 50, .28); }
+.warning.info { background: rgba(70, 130, 230, .12); border: 1px solid rgba(100, 150, 245, .25); }
+
+.record-hint { margin: -4px 0 10px; font-size: 12px; line-height: 1.5; }
+.record-form { display: grid; gap: 8px; margin-bottom: 12px; }
+.record-form label { display: grid; gap: 4px; font-size: 12px; color: #98a4b8; }
+.record-form select, .record-form input, .record-form textarea {
+  background: #111620;
+  color: #e8edf5;
+  border: 1px solid #354057;
+  border-radius: 7px;
+  padding: 7px 8px;
+  min-width: 0;
+  width: 100%;
+}
+.record-endpoint select { min-width: 0; width: 100%; }
+.record-form textarea { min-height: 56px; resize: vertical; }
+.record-endpoint {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: end;
+  background: #121927;
+  border: 1px solid #2b354a;
+  border-radius: 8px;
+  padding: 8px;
+}
+.record-endpoint > div { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; min-width: 0; }
+.record-endpoint label { display: none; }
+.record-endpoint .button { padding: 7px 9px; white-space: nowrap; }
+.record-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.record-estimate {
+  font-size: 12px;
+  color: #79d8a8;
+  background: rgba(52, 190, 120, .08);
+  border: 1px solid rgba(52, 190, 120, .25);
+  border-radius: 7px;
+  padding: 7px 9px;
+  line-height: 1.5;
+}
+.record-estimate.invalid {
+  color: #f0a95c;
+  background: rgba(240, 170, 50, .09);
+  border-color: rgba(240, 170, 50, .28);
+}
+.record-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; padding-right: 3px; }
+.record-card {
+  background: #121927;
+  border: 1px solid #2b354a;
+  border-radius: 8px;
+  padding: 9px 10px;
+  display: grid;
+  gap: 5px;
+  cursor: pointer;
+}
+.record-card:hover { border-color: #46567a; }
+.record-card.active { border-color: #42c98c; background: #13241d; }
+.record-card.unresolved { opacity: .82; }
+.record-card header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.record-card header strong { font-size: 13px; }
+.record-card p { margin: 0; }
+.record-segment { font-size: 12px; color: #c3cedf; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.record-segment em { color: #7f8ea6; font-style: normal; }
+.record-notes { font-size: 12px; color: #aebbd0; line-height: 1.5; }
+.record-card small { color: #8090a7; font-size: 11px; }
+.record-lost { font-size: 11px; color: #f0a95c; }
+.record-actions { display: flex; gap: 12px; }
+.record-actions button {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: #9db4ff;
+  cursor: pointer;
+  font-size: 12px;
+}
+.record-actions button:disabled { color: #5e6a80; cursor: not-allowed; }
+.record-actions .record-remove { color: #f28d8d; }
+.outcome-tag { border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+.outcome-tag.completed { background: rgba(60, 190, 120, .16); color: #70df99; }
+.outcome-tag.partial { background: rgba(240, 170, 50, .15); color: #f4c36b; }
+.outcome-tag.planned { background: rgba(120, 140, 170, .18); color: #aebbd0; }
 .warning.error { background: rgba(220, 70, 70, .13); border: 1px solid rgba(238, 91, 91, .32); }
 .warning.warning { background: rgba(240, 170, 50, .12); border: 1px solid rgba(240, 170, 50, .28); }
 .warning.info { background: rgba(70, 130, 230, .12); border: 1px solid rgba(100, 150, 245, .25); }
